@@ -1,0 +1,266 @@
+package main
+
+import (
+	"Holiday/model"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"github.com/golang-module/carbon/v2"
+	"github.com/kataras/iris/v12"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"io"
+	"net/http"
+	"strconv"
+	"time"
+)
+
+var gdb *gorm.DB
+var prot, path string
+var client = &http.Client{}
+var printVersion bool
+
+var Version = "v0.1"
+var GoVersion = "not set"
+var GitCommit = "not set"
+var BuildTime = "not set"
+
+func main() {
+	initFlag()
+	if printVersion {
+		version()
+		return
+	}
+
+	go func() {
+		year := carbon.Now(getLocationStr()).Year()
+		var d model.DateInfo
+		getDB().Where("date = ?", time.Date(year, 1, 1, 0, 0, 0, 0, getLocation())).First(&d)
+		if d.ID == 0 {
+			initYear(int64(carbon.Now(getLocationStr()).Year()))
+		}
+	}()
+
+	irisApp := iris.New()
+	irisApp.Use(middleware)
+	irisApp.Handle(iris.MethodGet, "/holiday/yesterday", yesterday)
+	irisApp.Handle(iris.MethodGet, "/holiday/today", today)
+	irisApp.Handle(iris.MethodGet, "/holiday/tomorrow", tomorrow)
+	irisApp.Handle(iris.MethodGet, "/info/{date:string}", dataInfo)
+	irisApp.Handle(iris.MethodGet, "/update/{year:int}", updateYear)
+
+	err := irisApp.Run(iris.Addr(":" + prot))
+	if err != nil {
+		fmt.Println("InitIris error", err)
+	}
+}
+
+// 初始化配置
+func initFlag() {
+	flag.StringVar(&prot, "prot", "8282", "--prot 8282")
+	flag.StringVar(&path, "path", "./", "--path '/data/'")
+
+	flag.BoolVar(&printVersion, "version", false, "--version 打印程序构建版本")
+
+	flag.Parse()
+}
+
+func version() {
+	fmt.Printf("Version: %s\n", Version)
+	fmt.Printf("Go Version: %s\n", GoVersion)
+	fmt.Printf("Git Commit: %s\n", GitCommit)
+	fmt.Printf("Build Time: %s\n", BuildTime)
+}
+
+func initYear(year int64) error {
+	dateInfos, err := initYearData(year)
+	if err != nil {
+		return err
+	}
+	for _, info := range dateInfos {
+		var d model.DateInfo
+		getDB().Where("date = ?", info.Date).First(&d)
+		if d.ID != 0 {
+			getDB().Model(d).Where("type != ?", 3).Updates(info)
+		} else {
+			getDB().Create(&info)
+		}
+	}
+	return nil
+}
+
+func getDB() *gorm.DB {
+	if gdb == nil {
+		gdb, err := initDB(path + "holiday.db")
+		if err != nil {
+			fmt.Println("initDB error ", err)
+			return nil
+		}
+		return gdb
+	}
+	return gdb
+}
+
+func initDB(dsn string) (*gorm.DB, error) {
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+
+	db.AutoMigrate(&model.DateInfo{})
+
+	return db, err
+}
+
+func initYearData(year int64) ([]model.DateInfo, error) {
+	dateInfos := make([]model.DateInfo, 0)
+	startYear := strconv.FormatInt(year, 10)
+	endYear := strconv.FormatInt(year+1, 10)
+	start := carbon.Parse(startYear)
+	end := carbon.Parse(endYear)
+	holidayInfo, err := getHolidayInfo(startYear)
+	if err != nil {
+		return nil, err
+	}
+	for ; start.Timestamp() < end.Timestamp(); start = start.AddDays(1) {
+		d := start.StdTime()
+		t := 0
+		holiday := start.IsSaturday() || start.IsSunday()
+		name := getDayName(start)
+
+		dateStr := start.Format("m-d", getLocationStr())
+
+		holidayDetail := holidayInfo[dateStr]
+		if holidayDetail != nil {
+			holiday = holidayDetail.Holiday
+			name = holidayDetail.Name
+			t = 1
+		}
+
+		dateInfos = append(dateInfos, model.DateInfo{Date: d, Holiday: holiday, Name: name, Type: t})
+	}
+	return dateInfos, nil
+}
+
+func getDayName(carbon carbon.Carbon) string {
+	if carbon.IsMonday() {
+		return "周一"
+	} else if carbon.IsTuesday() {
+		return "周二"
+	} else if carbon.IsWeekday() {
+		return "周三"
+	} else if carbon.IsThursday() {
+		return "周四"
+	} else if carbon.IsFriday() {
+		return "周五"
+	} else if carbon.IsSaturday() {
+		return "周六"
+	} else if carbon.IsSunday() {
+		return "周日"
+	}
+	return ""
+}
+
+func getHolidayInfo(year string) (map[string]*model.HolidayDetail, error) {
+	url := "http://timor.tech/api/holiday/year/" + year
+	// 创建一个GET请求
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
+
+	// 发起GET请求
+	resp, err := client.Do(req)
+
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body) // 读取响应 body, 返回为 []byte
+	if err != nil {
+		return nil, err
+	}
+	var holidayData model.HolidayData
+	err = json.Unmarshal(body, &holidayData)
+	if err != nil {
+		return nil, err
+	}
+	return holidayData.Holiday, nil
+}
+
+func middleware(ctx iris.Context) {
+	fmt.Printf("iris access Path: %s | IP: %s \n", ctx.Path(), ctx.RemoteAddr())
+	ctx.Next()
+}
+
+func getDateInfo(date string) (*model.ResponseData, error) {
+	c := carbon.ParseByFormat(date, "yy-m-d", getLocationStr())
+	t := c.StdTime()
+
+	var d model.DateInfo
+	getDB().Where("date = ?", t).First(&d)
+	if d.ID == 0 {
+		err := initYear(int64(c.Year()))
+		if err != nil {
+			return nil, err
+		}
+		getDB().Where("date = ?", t).First(&d)
+	}
+	return &model.ResponseData{Date: d.Date.Format(time.DateOnly), Holiday: d.Holiday, Name: d.Name, Type: d.Type}, nil
+}
+
+func getLocation() *time.Location {
+	location, _ := time.LoadLocation("Asia/Shanghai")
+	return location
+}
+func getLocationStr() string {
+	return getLocation().String()
+}
+
+func yesterday(ctx iris.Context) {
+	ctx.Text(getIsHoliday(carbon.Yesterday(getLocationStr())))
+}
+
+func today(ctx iris.Context) {
+	ctx.Text(getIsHoliday(carbon.Now(getLocationStr())))
+}
+
+func tomorrow(ctx iris.Context) {
+	ctx.Text(getIsHoliday(carbon.Tomorrow(getLocationStr())))
+}
+
+func getIsHoliday(carbon carbon.Carbon) string {
+	d := carbon.Format("yy-m-d", getLocationStr())
+	info, err := getDateInfo(d)
+	if err != nil {
+		return err.Error()
+	}
+	return strconv.FormatBool(info.Holiday)
+}
+
+func dataInfo(ctx iris.Context) {
+	d := ctx.Params().GetString("date")
+	info, err := getDateInfo(d)
+
+	var result model.ResponseInfo
+	if err != nil {
+		result = model.ResponseInfo{
+			Code: -1,
+			Msg:  err.Error(),
+		}
+	} else {
+		result = model.ResponseInfo{
+			Code: 0,
+			Data: info,
+		}
+	}
+	ctx.JSON(&result)
+}
+
+func updateYear(ctx iris.Context) {
+	year, _ := ctx.Params().GetInt("year")
+	initYear(int64(year))
+	ctx.JSON(&model.ResponseInfo{
+		Code: 0,
+		Msg:  "success",
+	})
+}
