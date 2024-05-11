@@ -18,9 +18,6 @@ jobs:
       with:
         go-version: 1.22.2
 
-    - name: Install
-      run: apt-get install build-essential libsqlite3-dev
-
     - name: Build
       run: CGO_ENABLED=1 go build -ldflags "-X 'main.GoVersion=$(go version)' -X main.GitCommit=`git rev-parse HEAD` -X 'main.BuildTime=`date +"%Y-%m-%d %H:%m:%S"`'" -o Holiday_amd64 ./main.go
 
