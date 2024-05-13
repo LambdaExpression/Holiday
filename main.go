@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 )
@@ -25,17 +26,25 @@ var GoVersion = "not set"
 var GitCommit = "not set"
 var BuildTime = "not set"
 
-func main() {
+func init() {
 	initFlag()
 	if printVersion {
 		version()
-		return
+		os.Exit(0)
 	}
+	var err error
+	gdb, err = initDB(path + "holiday.db")
+	if err != nil {
+		fmt.Println("initDB error ", err)
+		os.Exit(0)
+	}
+}
 
+func main() {
 	go func() {
 		year := carbon.Now(getLocationStr()).Year()
 		var d model.DateInfo
-		getDB().Where("date = ?", time.Date(year, 1, 1, 0, 0, 0, 0, getLocation())).First(&d)
+		gdb.Where("date = ?", time.Date(year, 1, 1, 0, 0, 0, 0, getLocation())).First(&d)
 		if d.ID == 0 {
 			initYear(int64(carbon.Now(getLocationStr()).Year()))
 		}
@@ -79,26 +88,14 @@ func initYear(year int64) error {
 	}
 	for _, info := range dateInfos {
 		var d model.DateInfo
-		getDB().Where("date = ?", info.Date).First(&d)
+		gdb.Where("date = ?", info.Date).First(&d)
 		if d.ID != 0 {
-			getDB().Model(d).Where("type != ?", 3).Updates(info)
+			gdb.Model(d).Where("type != ?", 3).Updates(info)
 		} else {
-			getDB().Create(&info)
+			gdb.Create(&info)
 		}
 	}
 	return nil
-}
-
-func getDB() *gorm.DB {
-	if gdb == nil {
-		gdb, err := initDB(path + "holiday.db")
-		if err != nil {
-			fmt.Println("initDB error ", err)
-			return nil
-		}
-		return gdb
-	}
-	return gdb
 }
 
 func initDB(dsn string) (*gorm.DB, error) {
@@ -197,13 +194,13 @@ func getDateInfo(date string) (*model.ResponseData, error) {
 	t := c.StdTime()
 
 	var d model.DateInfo
-	getDB().Where("date = ?", t).First(&d)
+	gdb.Where("date = ?", t).First(&d)
 	if d.ID == 0 {
 		err := initYear(int64(c.Year()))
 		if err != nil {
 			return nil, err
 		}
-		getDB().Where("date = ?", t).First(&d)
+		gdb.Where("date = ?", t).First(&d)
 	}
 	return &model.ResponseData{Date: d.Date.Format(time.DateOnly), Holiday: d.Holiday, Name: d.Name, Type: d.Type}, nil
 }
