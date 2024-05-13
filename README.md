@@ -21,6 +21,12 @@
 
 #### 3.1.1 请求参数
 
+请求示例：
+
+```shell
+curl http://127.0.0.1:8080/holiday/today
+```
+
 #### 3.1.2 返回结果
 
 参数名称						|类型		|出现要求	|描述  
@@ -30,7 +36,7 @@ true / false							|string		|R			|直接返回文本 true / false
 
 示例：
 
-```
+```text
 true
 ```
 
@@ -41,6 +47,12 @@ true
 
 #### 3.2.1 请求参数
 
+请求示例：
+
+```shell
+curl http://127.0.0.1:8080/holiday/yesterday
+```
+
 #### 3.2.2 返回结果
 
 参数名称						|类型		|出现要求	|描述  
@@ -50,7 +62,7 @@ true / false							|string		|R			|直接返回文本 true / false
 
 示例：
 
-```
+```text
 true
 ```
 
@@ -64,7 +76,7 @@ true
 
 请求示例：
 
-```
+```shell
 curl http://127.0.0.1:8080/holiday/tomorrow
 ```
 
@@ -77,7 +89,7 @@ true / false							|string		|R			|直接返回文本 true / false
 
 示例：
 
-```
+```text
 true
 ```
 
@@ -95,7 +107,7 @@ date						|string	|R			|"2024-05-01"格式的日期
 
 请求示例：
 
-```
+```shell
 curl http://127.0.0.1:8080/info/2024-04-28
 ```
 
@@ -115,7 +127,7 @@ data						| object		 |R			|
 
 示例：
 
-```
+```json
 {
 	"code": 0,
 	"msg": "",
@@ -143,7 +155,7 @@ year						| int	 |R			| 具体要刷新的某年份
 
 请求示例：
 
-```
+```shell
 curl http://127.0.0.1:8080/update/2024
 ```
 
@@ -158,7 +170,7 @@ data						| object		 |R			|
 
 示例：
 
-```
+```json
 {
 	"code": 0,
 	"msg": "success",
