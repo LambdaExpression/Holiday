@@ -76,8 +76,8 @@ func main() {
 
 // 初始化配置
 func initFlag() {
-	flag.StringVar(&prot, "prot", "8282", "--prot 8282")
-	flag.StringVar(&path, "path", "./", "--path '/data/'")
+	flag.StringVar(&prot, "prot", "8080", "--prot 8080 #  启动接口")
+	flag.StringVar(&path, "path", "./", "--path './' # 数据库和日志保存的目录")
 
 	flag.StringVar(&logLevel, "logLevel", "info", "--logLevel info # 日志等级")
 	flag.StringVar(&logEncoding, "logEncoding", "console", "--logEncoding console # 日志输出格式 console 或 json")

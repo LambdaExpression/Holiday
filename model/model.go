@@ -47,8 +47,8 @@ type ResponseInfo struct {
 }
 
 type ResponseData struct {
-	Date    string
-	Holiday bool
-	Name    string
-	Type    int
+	Date    string `json:"date"`
+	Holiday bool   `json:"holiday"`
+	Name    string `json:"name"`
+	Type    int    `json:"type"`
 }

@@ -10,6 +10,7 @@ conf/**
 
 *.db
 stdout.log
+Holiday
 
 **/.DS_Store
 **/node_modules
