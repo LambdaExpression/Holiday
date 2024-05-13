@@ -9,6 +9,7 @@ hsqldb/**
 conf/**
 
 *.db
+stdout.log
 
 **/.DS_Store
 **/node_modules

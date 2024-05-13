@@ -8,18 +8,23 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/golang-module/carbon/v2"
 	"github.com/kataras/iris/v12"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 	"gorm.io/gorm"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 var gdb *gorm.DB
-var prot, path string
+var prot, path, logLevel, logEncoding string
 var client = &http.Client{}
 var printVersion bool
+var log *zap.SugaredLogger
 
 var Version = "v0.1"
 var GoVersion = "not set"
@@ -33,9 +38,14 @@ func init() {
 		os.Exit(0)
 	}
 	var err error
-	gdb, err = initDB(path + "holiday.db")
+	log, err = initLogger()
 	if err != nil {
 		fmt.Println("initDB error ", err)
+		os.Exit(0)
+	}
+	gdb, err = initDB(path + "holiday.db")
+	if err != nil {
+		log.Error("initDB error ", err)
 		os.Exit(0)
 	}
 }
@@ -60,7 +70,7 @@ func main() {
 
 	err := irisApp.Run(iris.Addr(":" + prot))
 	if err != nil {
-		fmt.Println("InitIris error", err)
+		log.Error("InitIris error", err)
 	}
 }
 
@@ -68,6 +78,9 @@ func main() {
 func initFlag() {
 	flag.StringVar(&prot, "prot", "8282", "--prot 8282")
 	flag.StringVar(&path, "path", "./", "--path '/data/'")
+
+	flag.StringVar(&logLevel, "logLevel", "info", "--logLevel info # 日志等级")
+	flag.StringVar(&logEncoding, "logEncoding", "console", "--logEncoding console # 日志输出格式 console 或 json")
 
 	flag.BoolVar(&printVersion, "version", false, "--version 打印程序构建版本")
 
@@ -107,6 +120,78 @@ func initDB(dsn string) (*gorm.DB, error) {
 	db.AutoMigrate(&model.DateInfo{})
 
 	return db, err
+}
+
+// 初始化 zap日志框架
+func initLogger() (*zap.SugaredLogger, error) {
+	level := getLevel()
+	encoding := logEncoding
+	// 保留两个变量，但设置成同一个文件
+	//stdout := configs.DataPath + "/log/stdout.log"
+	//stderr := configs.DataPath + "/log/stderr.log"
+
+	stdout := &lumberjack.Logger{
+		Filename:   path + "stdout.log",
+		MaxSize:    10, // 每个日志文件的最大大小，单位为MB
+		MaxBackups: 10, // 保留的旧日志文件的最大数量
+		MaxAge:     60, // 保留的旧日志文件的最大天数
+	}
+
+	encoderConfig := zapcore.EncoderConfig{
+		TimeKey:        "time",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		MessageKey:     "msg",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder, // 小写编码器
+		EncodeTime:     zapcore.ISO8601TimeEncoder,    // ISO8601 UTC 时间格式
+		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder, // 短路径编码器
+	}
+	atom := zap.NewAtomicLevelAt(level)
+	config := zap.Config{
+		Level:         atom,          // 日志级别
+		Development:   true,          // 开发模式，堆栈跟踪
+		Encoding:      encoding,      // 输出格式 console 或 json
+		EncoderConfig: encoderConfig, // 编码器配置
+		//InitialFields:    map[string]interface{}{"serviceName": "gogs-backup"}, // 初始化字段，如：添加一个服务器名称
+		OutputPaths:      []string{"stdout", stdout.Filename}, // 输出到指定文件 stdout（标准输出，正常颜色） stderr（错误输出，红色）
+		ErrorOutputPaths: []string{"stderr", stdout.Filename},
+	}
+	logger, err := config.Build()
+	if err != nil {
+		return nil, err
+	}
+	log := logger.Sugar()
+	log.Info("logger 初始化成功")
+	return log, err
+}
+
+// 获取 日志等级
+func getLevel() zapcore.Level {
+	levelStr := strings.TrimSpace(strings.ToLower(logLevel))
+	var level zapcore.Level
+	switch levelStr {
+	case "debug":
+		level = zap.DebugLevel
+	case "info":
+		level = zap.InfoLevel
+	case "warn":
+		level = zap.WarnLevel
+	case "error":
+		level = zap.ErrorLevel
+	case "dpanic":
+		level = zap.DPanicLevel
+	case "panic":
+		level = zap.PanicLevel
+	case "fatal":
+		level = zap.FatalLevel
+	default:
+		level = zap.InfoLevel
+	}
+	return level
 }
 
 func initYearData(year int64) ([]model.DateInfo, error) {
@@ -185,7 +270,7 @@ func getHolidayInfo(year string) (map[string]*model.HolidayDetail, error) {
 }
 
 func middleware(ctx iris.Context) {
-	fmt.Printf("iris access Path: %s | IP: %s \n", ctx.Path(), ctx.RemoteAddr())
+	log.Infof("iris access Path: %s | IP: %s", ctx.Path(), ctx.RemoteAddr())
 	ctx.Next()
 }
 
